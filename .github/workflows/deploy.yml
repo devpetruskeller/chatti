@@ -1,0 +1,52 @@
+name: Deploy Chatti
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-chatti-production
+  cancel-in-progress: false
+
+jobs:
+  validate-and-deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      DEPLOY_TARGET: /var/www/api.postoochat.com/public/wp-content/plugins/chatti
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Validate PHP syntax
+        run: |
+          find plugin/chatti -type f -name '*.php' -print0 | xargs -0 -r -n1 php -l
+
+      - name: Configure SSH
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.VULTR_SSH_PRIVATE_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.VULTR_SSH_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Verify plugin destination
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -o BatchMode=yes -o StrictHostKeyChecking=yes "$DEPLOY_USER@$DEPLOY_HOST" "test -d '$DEPLOY_TARGET' && test -w '$DEPLOY_TARGET'"
+
+      - name: Synchronize this plugin only
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          rsync -az --delete --itemize-changes -e 'ssh -i ~/.ssh/deploy_key -o BatchMode=yes -o StrictHostKeyChecking=yes' plugin/chatti/ "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_TARGET/"

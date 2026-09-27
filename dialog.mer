@@ -1,0 +1,73 @@
+```mermaid
+sequenceDiagram
+    autonumber
+    participant O as Owner<br/>Petrus · 081 123 4567
+    participant A as Admin<br/>Jacques · 082 123 4567
+    participant W as Worker<br/>Jesse · 083 123 4567
+    participant U as User<br/>Reinette · 084 123 4567
+
+    Note over O,U: Workspace Onboarding — Mechanical Parts Company
+    Note over O: Petrus starts as Owner, Admin, and Worker
+    O->>O: Create the workspace
+    O->>O: Name workspace: Mechanical Parts Company
+    O->>O: Set time zone
+    O->>O: Set working hours
+    O->>O: Workspace ready with Owner / Admin / Worker access
+
+    Note over O,A: Invite an administrator
+    O->>A: Send Admin invitation link with workspace key
+    A->>A: Open invitation link and reply to accept
+    A->>A: Join the contained workspace as Admin and User
+    Note over O,A: Petrus now remains Owner only.<br/>Jacques has Admin and User roles, but no Worker role.
+
+    Note over A,W: Invite a worker
+    A->>W: Send Worker invitation link with workspace key
+    W->>W: Open invitation link and reply to accept
+    W->>W: Join the contained workspace as Worker
+    Note over A,W: Role hierarchy: Owner joins Admin; Admin joins Worker;<br/>Worker joins User. Only the Worker role can chat with a User.
+
+    Note over O,U: User entry setup only — not user chat routing
+    W->>W: Publish a workspace entry link or QR / HTML code
+    Note over U: Entry may be placed on the company website,<br/>Facebook, or another app
+    Note over O,U: The user’s initial WhatsApp / Telegram channel consent<br/>is separate from Workspace Onboarding.
+
+    Note over O,U: Conversation — daily workspace availability
+    Note over A,W: Every Admin and Worker must Check-In each working day.
+    A->>A: Check current Check-In status
+    alt Admin is Checked-Out
+        A->>A: Check-In for today
+    else Admin is already Checked-In
+        A->>A: Remain Checked-In
+    end
+    W->>W: Check current Check-In status
+    alt Worker is Checked-Out
+        W->>W: Check-In for today
+    else Worker is already Checked-In
+        W->>W: Remain Checked-In
+    end
+    Note over A,W: Only checked-in Admins and Workers can receive messages.<br/>Everyone is checked out automatically at the end of working hours.
+
+    Note over U,W: User request and round-robin assignment
+    U->>U: Tap the Mechanical Parts QR code or entry link
+    U->>W: I need brake pads
+    W->>W: Put request into the round-robin queue
+    W->>W: Select checked-in worker not currently on a chat
+    Note over W: Send the request and Accept option to each eligible worker
+    W->>W: Accept the request message - I need brake pads for my vehicle
+    W->>U: Please share the vehicle details.
+    Note over W: Delete the Accept request from every other eligible worker<br/>to keep their chats clean.
+
+
+    Note over A,W: Admin monitoring and intervention
+    A->>A: Switch to In worker conversation with @jesse
+    A->>W: Notification: Admin joined the conversation
+    A->>W: Could give internal guidance to the Worker (Optional)
+    Note over A,U: Admin never messages the User;<br/>only a Worker role can hold a user-facing conversation.
+    A->>A: Exit worker conversation
+    A->>W: Admin left conversation
+
+    Note over U,W: Close and return to availability
+    W->>U: Close Chat
+    W->>W: Mark chat closed and leave the conversation
+    W->>W: Return to available for the next queued request
+```

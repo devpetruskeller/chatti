@@ -1,0 +1,16 @@
+# Local development and secret material.
+.env
+.env.*
+!.env.example
+vendor/
+node_modules/
+
+# WordPress runtime data.
+wp-content/uploads/
+*.log
+*.sql
+*.sql.gz
+
+# Editor and OS files.
+.DS_Store
+Thumbs.db
