@@ -15,6 +15,28 @@ person joins the PosTooChat WhatsApp or Telegram channel.
 The current end-to-end design is maintained in
 [dialog.mer](dialog.mer).
 
+## Registry setup
+
+Before Chatti can receive a verified Suite selection or send
+`CHATTI_ONBOARDING`, register it through **Tools → Chat App Registry**. Use:
+
+```text
+App ID: chatti
+Label: Chatti
+Channels: WhatsApp, Telegram
+Entry words: CHATTI
+Callback URL: https://api.postoochat.com/wp-json/chatti/v1/events
+Callback secret environment variable: PT_CALLBACK_SIGNING_SECRET_CHATTI
+Key ID: chatti-wp-2026-01
+Message group: postoochat_chatti
+```
+
+Generate or allocate the Tenant UUID in the Registry. Create the named callback
+secret in Supabase and put the same secret value in Chatti's private WordPress
+configuration as `PTC_CHATTI_CALLBACK_SIGNING_SECRET`. The one-time delivery
+API key returned by the Registry belongs in `PTC_CHATTI_APP_API_KEY`, while its
+Key ID belongs in `PTC_CHATTI_APP_KEY_ID`.
+
 ## 2. Workspace roles and hierarchy
 
 | Role | Responsibility | User-facing chat |
