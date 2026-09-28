@@ -31,8 +31,8 @@ Key ID: chatti-wp-2026-01
 Message group: postoochat_chatti
 ```
 
-Generate or allocate the Tenant UUID in the Registry. Create the named callback
-secret in Supabase and put the same secret value in Chatti's private WordPress
+Leave Tenant UUID blank in the Registry to create a dedicated Chatti tenant.
+Create the named callback secret in Supabase and put the same secret value in Chatti's private WordPress
 configuration as `PTC_CHATTI_CALLBACK_SIGNING_SECRET`. The one-time delivery
 API key returned by the Registry belongs in `PTC_CHATTI_APP_API_KEY`, while its
 Key ID belongs in `PTC_CHATTI_APP_KEY_ID`.
