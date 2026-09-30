@@ -106,7 +106,10 @@ function ptc_chatti_handle_callback( WP_REST_Request $request ) {
 	$workspace_id = null;
 	if ( ( $event['eventType'] ?? '' ) === 'channel.message.received' ) {
 		$sent = ptc_chatti_send_workspace_prompt( $event, $event_id );
-		if ( is_wp_error( $sent ) ) return new WP_REST_Response( array( 'ok' => false, 'error' => 'onboarding_prompt_failed' ), 503 );
+		if ( is_wp_error( $sent ) ) {
+			$status = (int) $sent->get_error_data();
+			return new WP_REST_Response( array( 'ok' => false, 'error' => $sent->get_error_code() ), $status ?: 503 );
+		}
 		$wpdb->insert( $events, array( 'event_id' => $event_id, 'received_at' => current_time( 'mysql', true ) ), array( '%s', '%s' ) );
 	} elseif ( ( $event['eventType'] ?? '' ) === 'communication.replied' && ( $event['stepId'] ?? '' ) === 'workspace-name' ) {
 		$label = ptc_chatti_workspace_label( $event['reply']['text'] ?? '' );
@@ -156,6 +159,17 @@ function ptc_chatti_send_workspace_prompt( $event, $event_id ) {
 			'recipient' => array( 'address' => $address ), 'waitFor' => array( 'type' => 'reply', 'timeoutSeconds' => 900 ),
 		) ),
 	) );
-	if ( is_wp_error( $response ) || wp_remote_retrieve_response_code( $response ) < 200 || wp_remote_retrieve_response_code( $response ) >= 300 ) return new WP_Error( 'onboarding_send_failed' );
+	if ( is_wp_error( $response ) ) return new WP_Error( 'onboarding_send_failed', '', array( 'status' => 503 ) );
+	$status = wp_remote_retrieve_response_code( $response );
+	if ( $status < 200 || $status >= 300 ) {
+		$body = json_decode( wp_remote_retrieve_body( $response ), true );
+		$error = is_array( $body ) ? sanitize_key( (string) ( $body['error'] ?? '' ) ) : '';
+		// A missing active catalog record cannot recover through callback retries.
+		// Return a terminal client error so Suite sends its seed fallback now.
+		if ( 'message_definition_not_found' === $error ) {
+			return new WP_Error( 'onboarding_message_definition_not_found', '', array( 'status' => 422 ) );
+		}
+		return new WP_Error( 'onboarding_send_failed', '', array( 'status' => 503 ) );
+	}
 	return true;
 }

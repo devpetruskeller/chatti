@@ -37,6 +37,12 @@ configuration as `PTC_CHATTI_CALLBACK_SIGNING_SECRET`. The one-time delivery
 API key returned by the Registry belongs in `PTC_CHATTI_APP_API_KEY`, while its
 Key ID belongs in `PTC_CHATTI_APP_KEY_ID`.
 
+`CHATTI_ONBOARDING` must be published for both WhatsApp and Telegram in the
+`postoochat_chatti` Message Center group, then imported into Supabase using
+**Notify Supabase**. If the active catalog does not contain that message, Chatti
+returns a terminal 422 to Suite; Suite immediately sends its standard
+under-construction seed fallback instead of retrying the selection callback.
+
 ## 2. Workspace roles and hierarchy
 
 | Role | Responsibility | User-facing chat |
