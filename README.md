@@ -90,7 +90,16 @@ the raw pin remains purpose-bound as a workspace-base location. Future customer
 request or delivery pins are stored separately with request/delivery purpose
 and expiry; they do not become permanent workspace or profile locations.
 
-## 4. Daily availability
+## 4. Workspace administration
+
+The WordPress **Tools → Chatti** page separates workspaces into WhatsApp and
+Telegram tabs. Each row shows the workspace, owner mobile/channel identity,
+timezone, hours, and onboarding status. Administrators can edit the workspace
+name, timezone, and hours, or remove the workspace and its memberships. Owner
+channel identities remain read-only: changing a number requires a verified
+re-link rather than a silent administrative edit.
+
+## 5. Daily availability
 
 Every Admin and Worker must be Checked-In during the workspace’s working day.
 Their status is checked first: a Checked-Out member is Checked-In, while a
@@ -99,7 +108,7 @@ member already Checked-In remains available without a duplicate check-in.
 Only Checked-In Admins and Workers may receive workspace messages. Chatti
 automatically Checks-Out them at the configured end of the working day.
 
-## 5. Routed user conversation
+## 6. Routed user conversation
 
 1. A User opens the workspace entry link or scans its QR code and submits a
    request, such as “I need brake pads.”
@@ -114,7 +123,7 @@ automatically Checks-Out them at the configured end of the working day.
 6. The Worker closes the chat. The Worker then becomes available for the next
    queued request.
 
-## 6. Conversation controls
+## 7. Conversation controls
 
 Administrators can switch into a named Worker’s conversation, receive a Worker
 notification that they have joined, optionally provide internal guidance, and
@@ -126,7 +135,7 @@ Workers can use **Close Chat** to end their assigned conversation. Closing a
 chat clears the Worker’s active assignment so Chatti can route the next request
 to them when they remain Checked-In.
 
-## 7. Current diagram
+## 8. Current diagram
 
 The Mermaid sequence diagram is the concise working specification for the
 current workflow:

@@ -15,6 +15,7 @@ defined( 'ABSPATH' ) || exit;
 function ptc_chatti_bootstrap() {
 	add_action( 'admin_menu', 'ptc_chatti_add_admin_page' );
 	add_action( 'rest_api_init', 'ptc_chatti_register_rest_routes' );
+	add_action( 'admin_post_ptc_chatti_workspace', 'ptc_chatti_handle_workspace_admin_post' );
 }
 add_action( 'plugins_loaded', 'ptc_chatti_bootstrap' );
 register_activation_hook( __FILE__, 'ptc_chatti_install_schema' );
@@ -142,12 +143,72 @@ function ptc_chatti_render_admin_page() {
 	if ( ! current_user_can( 'manage_options' ) ) wp_die( esc_html__( 'You are not allowed to manage Chatti.', 'chatti' ) );
 	global $wpdb;
 	$workspaces = $wpdb->prefix . 'chatti_workspaces';
-	$count = (int) $wpdb->get_var( "SELECT COUNT(*) FROM $workspaces" ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+	$channel = isset( $_GET['channel'] ) ? sanitize_key( wp_unslash( $_GET['channel'] ) ) : 'whatsapp';
+	$channel = in_array( $channel, array( 'whatsapp', 'telegram' ), true ) ? $channel : 'whatsapp';
+	$editing_id = isset( $_GET['workspace'] ) ? sanitize_text_field( wp_unslash( $_GET['workspace'] ) ) : '';
+	$editing = $editing_id ? $wpdb->get_row( $wpdb->prepare( "SELECT * FROM $workspaces WHERE workspace_id = %s AND owner_channel = %s", $editing_id, $channel ), ARRAY_A ) : null; // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+	$rows = $wpdb->get_results( $wpdb->prepare( "SELECT workspace_id, workspace_label, owner_address, timezone, working_hours, onboarding_step, updated_at FROM $workspaces WHERE owner_channel = %s ORDER BY updated_at DESC", $channel ), ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+	$base = admin_url( 'tools.php?page=chatti' );
 	?>
-	<div class="wrap"><h1><?php esc_html_e( 'Chatti', 'chatti' ); ?></h1>
-	<p><?php printf( esc_html__( '%d workspace(s) created through Chatti onboarding.', 'chatti' ), $count ); ?></p>
-	<p><?php esc_html_e( 'A verified Suite user selects Chatti, then completes the Chatti workspace onboarding flow.', 'chatti' ); ?></p></div>
+	<div class="wrap">
+		<h1><?php esc_html_e( 'Chatti workspaces', 'chatti' ); ?></h1>
+		<nav class="nav-tab-wrapper" aria-label="<?php esc_attr_e( 'Chatti channels', 'chatti' ); ?>">
+			<a class="nav-tab <?php echo 'whatsapp' === $channel ? 'nav-tab-active' : ''; ?>" href="<?php echo esc_url( add_query_arg( 'channel', 'whatsapp', $base ) ); ?>"><?php esc_html_e( 'WhatsApp', 'chatti' ); ?></a>
+			<a class="nav-tab <?php echo 'telegram' === $channel ? 'nav-tab-active' : ''; ?>" href="<?php echo esc_url( add_query_arg( 'channel', 'telegram', $base ) ); ?>"><?php esc_html_e( 'Telegram', 'chatti' ); ?></a>
+		</nav>
+		<?php if ( isset( $_GET['updated'] ) ) : ?><div class="notice notice-success is-dismissible"><p><?php esc_html_e( 'Workspace saved.', 'chatti' ); ?></p></div><?php endif; ?>
+		<?php if ( isset( $_GET['deleted'] ) ) : ?><div class="notice notice-success is-dismissible"><p><?php esc_html_e( 'Workspace removed.', 'chatti' ); ?></p></div><?php endif; ?>
+		<?php if ( $editing ) : ?>
+			<h2><?php esc_html_e( 'Edit workspace', 'chatti' ); ?></h2>
+			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+				<?php wp_nonce_field( 'ptc_chatti_workspace' ); ?>
+				<input type="hidden" name="action" value="ptc_chatti_workspace" />
+				<input type="hidden" name="operation" value="save" />
+				<input type="hidden" name="workspace_id" value="<?php echo esc_attr( $editing['workspace_id'] ); ?>" />
+				<input type="hidden" name="channel" value="<?php echo esc_attr( $channel ); ?>" />
+				<table class="form-table" role="presentation"><tbody>
+					<tr><th><label for="ptc-workspace-label"><?php esc_html_e( 'Workspace', 'chatti' ); ?></label></th><td><input class="regular-text" id="ptc-workspace-label" name="workspace_label" value="<?php echo esc_attr( $editing['workspace_label'] ); ?>" required maxlength="120" /></td></tr>
+					<tr><th><?php esc_html_e( 'Owner mobile', 'chatti' ); ?></th><td><code><?php echo esc_html( $editing['owner_address'] ); ?></code><p class="description"><?php esc_html_e( 'The channel identity is not changed here.', 'chatti' ); ?></p></td></tr>
+					<tr><th><label for="ptc-timezone"><?php esc_html_e( 'Timezone', 'chatti' ); ?></label></th><td><input class="regular-text" id="ptc-timezone" name="timezone" value="<?php echo esc_attr( $editing['timezone'] ); ?>" placeholder="Africa/Johannesburg" /></td></tr>
+					<tr><th><label for="ptc-hours"><?php esc_html_e( 'Hours', 'chatti' ); ?></label></th><td><input class="regular-text" id="ptc-hours" name="working_hours" value="<?php echo esc_attr( $editing['working_hours'] ); ?>" placeholder="08:00-17:00" /></td></tr>
+				</tbody></table>
+				<?php submit_button( __( 'Save workspace', 'chatti' ) ); ?> <a class="button" href="<?php echo esc_url( add_query_arg( 'channel', $channel, $base ) ); ?>"><?php esc_html_e( 'Cancel', 'chatti' ); ?></a>
+			</form>
+		<?php endif; ?>
+		<h2><?php echo esc_html( ucfirst( $channel ) ); ?></h2>
+		<table class="widefat striped"><thead><tr><th><?php esc_html_e( 'Workspace', 'chatti' ); ?></th><th><?php esc_html_e( 'Owner mobile', 'chatti' ); ?></th><th><?php esc_html_e( 'Timezone', 'chatti' ); ?></th><th><?php esc_html_e( 'Hours', 'chatti' ); ?></th><th><?php esc_html_e( 'Status', 'chatti' ); ?></th><th><?php esc_html_e( 'Actions', 'chatti' ); ?></th></tr></thead><tbody>
+		<?php if ( ! $rows ) : ?><tr><td colspan="6"><?php esc_html_e( 'No workspaces yet.', 'chatti' ); ?></td></tr><?php endif; ?>
+		<?php foreach ( $rows as $row ) : $edit_url = add_query_arg( array( 'channel' => $channel, 'workspace' => $row['workspace_id'] ), $base ); ?>
+			<tr><td><?php echo esc_html( $row['workspace_label'] ); ?></td><td><code><?php echo esc_html( $row['owner_address'] ); ?></code></td><td><?php echo esc_html( $row['timezone'] ?: '—' ); ?></td><td><?php echo esc_html( $row['working_hours'] ?: '—' ); ?></td><td><?php echo esc_html( $row['onboarding_step'] ); ?></td><td><a class="button button-secondary" href="<?php echo esc_url( $edit_url ); ?>"><?php esc_html_e( 'Edit', 'chatti' ); ?></a> <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline" onsubmit="return confirm('<?php echo esc_js( __( 'Remove this workspace and its memberships?', 'chatti' ) ); ?>');"><?php wp_nonce_field( 'ptc_chatti_workspace' ); ?><input type="hidden" name="action" value="ptc_chatti_workspace" /><input type="hidden" name="operation" value="delete" /><input type="hidden" name="workspace_id" value="<?php echo esc_attr( $row['workspace_id'] ); ?>" /><input type="hidden" name="channel" value="<?php echo esc_attr( $channel ); ?>" /><button type="submit" class="button button-link-delete"><?php esc_html_e( 'Delete', 'chatti' ); ?></button></form></td></tr>
+		<?php endforeach; ?>
+		</tbody></table>
+	</div>
 	<?php
+}
+
+function ptc_chatti_handle_workspace_admin_post() {
+	if ( ! current_user_can( 'manage_options' ) ) wp_die( esc_html__( 'You are not allowed to manage Chatti.', 'chatti' ) );
+	check_admin_referer( 'ptc_chatti_workspace' );
+	$channel = sanitize_key( wp_unslash( $_POST['channel'] ?? '' ) );
+	$workspace_id = sanitize_text_field( wp_unslash( $_POST['workspace_id'] ?? '' ) );
+	if ( ! in_array( $channel, array( 'whatsapp', 'telegram' ), true ) || ! preg_match( '/^[0-9a-f-]{36}$/i', $workspace_id ) ) wp_die( esc_html__( 'Invalid workspace request.', 'chatti' ) );
+	global $wpdb;
+	$workspaces = $wpdb->prefix . 'chatti_workspaces';
+	$members = $wpdb->prefix . 'chatti_workspace_members';
+	$base = admin_url( 'tools.php?page=chatti&channel=' . $channel );
+	if ( 'delete' === ( $_POST['operation'] ?? '' ) ) {
+		$wpdb->query( 'START TRANSACTION' );
+		$members_deleted = $wpdb->delete( $members, array( 'workspace_id' => $workspace_id ) );
+		$deleted = false !== $members_deleted && $wpdb->delete( $workspaces, array( 'workspace_id' => $workspace_id, 'owner_channel' => $channel ) );
+		if ( $deleted ) $wpdb->query( 'COMMIT' ); else $wpdb->query( 'ROLLBACK' );
+		wp_safe_redirect( add_query_arg( $deleted ? 'deleted' : 'error', '1', $base ) ); exit;
+	}
+	$label = ptc_chatti_workspace_label( wp_unslash( $_POST['workspace_label'] ?? '' ) );
+	$timezone = sanitize_text_field( wp_unslash( $_POST['timezone'] ?? '' ) );
+	$hours = ptc_chatti_parse_hours( wp_unslash( $_POST['working_hours'] ?? '' ) );
+	if ( ! $label || ( $timezone && ! preg_match( '/^[A-Za-z_+-]+\/[A-Za-z_+\/-]+$/', $timezone ) ) || ( ! empty( $_POST['working_hours'] ) && ! $hours ) ) wp_die( esc_html__( 'Enter a workspace name, IANA timezone, and valid hours.', 'chatti' ) );
+	$updated = false !== $wpdb->update( $workspaces, array( 'workspace_label' => $label, 'timezone' => $timezone ?: null, 'working_hours' => $hours ?: null, 'updated_at' => current_time( 'mysql', true ) ), array( 'workspace_id' => $workspace_id, 'owner_channel' => $channel ) );
+	wp_safe_redirect( add_query_arg( $updated ? 'updated' : 'error', '1', $base ) ); exit;
 }
 
 function ptc_chatti_register_rest_routes() {
