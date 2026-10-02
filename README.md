@@ -37,6 +37,11 @@ configuration as `PTC_CHATTI_CALLBACK_SIGNING_SECRET`. The one-time delivery
 API key returned by the Registry belongs in `PTC_CHATTI_APP_API_KEY`, while its
 Key ID belongs in `PTC_CHATTI_APP_KEY_ID`.
 
+The plugin also needs the private Edge Function URLs in
+`PTC_CHATTI_TIMEZONE_LOOKUP_URL` and `PTC_CHATTI_INVITATIONS_URL`. It sends
+the same Chatti application key to these services; it never creates or stores
+an invitation secret locally.
+
 `CHATTI_ONBOARDING` must be published for both WhatsApp and Telegram in the
 `postoochat_chatti` Message Center group, then imported into Supabase using
 **Notify Supabase**. If the active catalog does not contain that message, Chatti
@@ -54,26 +59,34 @@ under-construction seed fallback instead of retrying the selection callback.
 
 The role hierarchy is **Owner → Admin → Worker → User**.
 
-The person who creates a workspace starts with Owner, Admin, and Worker roles.
-For example, Petrus creates the Mechanical Parts Company workspace. If Petrus
-invites Jacques as an Admin, Petrus becomes Owner-only and Jacques joins with
-Admin and User roles, but without the Worker role. Jacques can then invite
-Jesse as a Worker. A Worker is the only role permitted to hold a user-facing
-conversation.
+The person who creates a workspace starts with the Owner role only and is the
+only person permitted to complete this setup. A Worker is the only role
+permitted to hold a user-facing conversation.
 
 ## 3. Workspace onboarding
 
-1. The founding Owner creates and names the workspace.
-2. The Owner sets the workspace time zone and working hours.
-3. The Owner may send an Admin invitation link containing the workspace key.
-   The recipient opens the link and replies to accept, joining that workspace.
-4. An Admin may send a Worker invitation link containing the workspace key.
-   The recipient opens the link and replies to accept, joining that workspace.
-5. A Worker publishes a workspace entry link, QR code, or HTML code. It may be
+1. The founding Owner names the already-created workspace.
+2. Chatti sends the User invitation and its channel-specific link.
+3. The Owner shares a location pin; Supabase records it as `workspace_base`
+   and returns its IANA timezone.
+4. The Owner selects an hours action or types `08:00 - 17:00`.
+5. Chatti sends the Admin and Worker invitation links.
+6. A Worker publishes a workspace entry link, QR code, or HTML code. It may be
    placed on the company website, Facebook, or another application.
+
+The role invitations are short-lived, HMAC-signed, workspace- and
+channel-scoped tokens. Supabase stores only their hashes and lifecycle state;
+the recipient-side redemption route will validate and consume the token before
+creating membership.
 
 Workspace membership and invitation acceptance are separate from a person’s
 initial WhatsApp or Telegram consent.
+
+Chatti uses Supabase's shared Location Service when the Owner shares a location
+during onboarding: the derived IANA timezone configures workspace hours, while
+the raw pin remains purpose-bound as a workspace-base location. Future customer
+request or delivery pins are stored separately with request/delivery purpose
+and expiry; they do not become permanent workspace or profile locations.
 
 ## 4. Daily availability
 
