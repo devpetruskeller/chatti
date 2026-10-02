@@ -77,6 +77,10 @@ sends `CHATTI_MENU` with `check_in_out_status = Checked-IN`.
 - **Exit** is a Suite boundary action: Supabase clears the active Suite session
   and 2FA/onboarding state, retains the consent audit, and sends the pre-auth
   Suite entry flow. Chatti has no direct database permission for this.
+- **Home** is a System reply, not a workspace-name reply. It returns to this
+  owner's most recently used app, including after **Close**; for Chatti that
+  authenticated repeat entry resolves the existing Workspace and opens
+  `CHATTI_MENU`.
 
 ## 3. Workspace onboarding
 
