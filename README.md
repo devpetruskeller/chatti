@@ -38,7 +38,8 @@ API key returned by the Registry belongs in `PTC_CHATTI_APP_API_KEY`, while its
 Key ID belongs in `PTC_CHATTI_APP_KEY_ID`.
 
 The plugin also needs the private Edge Function URLs in
-`PTC_CHATTI_TIMEZONE_LOOKUP_URL` and `PTC_CHATTI_INVITATIONS_URL`. It sends
+`PTC_CHATTI_TIMEZONE_LOOKUP_URL`, `PTC_CHATTI_INVITATIONS_URL`, and
+`PTC_CHATTI_SESSION_NAVIGATION_URL`. It sends
 the same Chatti application key to these services; it never creates or stores
 an invitation secret locally.
 
@@ -62,6 +63,20 @@ The role hierarchy is **Owner → Admin → Worker → User**.
 The person who creates a workspace starts with the Owner role only and is the
 only person permitted to complete this setup. A Worker is the only role
 permitted to hold a user-facing conversation.
+
+## Workspace entry and session protocol
+
+A channel and owner mobile identity may own one **Workspace** only. A later
+Chatti selection finds that Workspace, records the Owner as **Checked-IN**, and
+sends `CHATTI_MENU` with `check_in_out_status = Checked-IN`.
+
+- **Check-IN** and **Check-OUT** store the availability change and return a
+  fresh `CHATTI_MENU` with the current status.
+- **Close** ends the Chatti session and returns the verified person to the
+  Suite Start Menu.
+- **Exit** is a Suite boundary action: Supabase clears the active Suite session
+  and 2FA/onboarding state, retains the consent audit, and sends the pre-auth
+  Suite entry flow. Chatti has no direct database permission for this.
 
 ## 3. Workspace onboarding
 

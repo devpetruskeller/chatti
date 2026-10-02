@@ -21,9 +21,9 @@ add_action( 'plugins_loaded', 'ptc_chatti_bootstrap' );
 register_activation_hook( __FILE__, 'ptc_chatti_install_schema' );
 
 function ptc_chatti_maybe_upgrade_schema() {
-	if ( get_option( 'ptc_chatti_schema_version' ) !== '2' ) {
+	if ( get_option( 'ptc_chatti_schema_version' ) !== '3' ) {
 		ptc_chatti_install_schema();
-		update_option( 'ptc_chatti_schema_version', '2', false );
+		update_option( 'ptc_chatti_schema_version', '3', false );
 	}
 }
 add_action( 'plugins_loaded', 'ptc_chatti_maybe_upgrade_schema', 5 );
@@ -55,6 +55,9 @@ function ptc_chatti_install_schema() {
 		channel varchar(16) NOT NULL,
 		channel_address varchar(191) NOT NULL,
 		roles longtext NOT NULL,
+		check_in_status varchar(16) NOT NULL DEFAULT 'checked_out',
+		checked_in_at datetime NULL,
+		checked_out_at datetime NULL,
 		created_at datetime NOT NULL,
 		PRIMARY KEY  (membership_id),
 		UNIQUE KEY workspace_member (workspace_id, channel, channel_address)
@@ -65,6 +68,15 @@ function ptc_chatti_install_schema() {
 		workspace_id char(36) NULL,
 		PRIMARY KEY  (event_id)
 	) $charset;" );
+	// Existing installations may have test duplicates from before this protocol.
+	// Do not delete data during an upgrade; add the database guard only once the
+	// owner identity is already clean. The application lookup above protects
+	// normal repeat entries in either case.
+	$duplicates = $wpdb->get_var( "SELECT owner_address FROM $workspaces GROUP BY owner_channel, owner_address HAVING COUNT(*) > 1 LIMIT 1" ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+	if ( ! $duplicates ) {
+		$indexes = $wpdb->get_results( "SHOW INDEX FROM $workspaces WHERE Key_name = 'owner_workspace'", ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		if ( ! $indexes ) $wpdb->query( "ALTER TABLE $workspaces ADD UNIQUE KEY owner_workspace (owner_channel, owner_address)" ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+	}
 }
 
 function ptc_chatti_workspace_for_event( $event ) {
@@ -72,17 +84,57 @@ function ptc_chatti_workspace_for_event( $event ) {
 	return preg_match( '/^chatti-onboarding:([0-9a-f-]{36})$/i', $workflow, $match ) ? $match[1] : '';
 }
 
-function ptc_chatti_send_message( $workspace_id, $channel, $address, $step, $message, $variables = array(), $wait = true ) {
+function ptc_chatti_send_message( $workspace_id, $channel, $address, $step, $message, $variables = array(), $wait = true, $idempotency_suffix = '' ) {
 	$url = defined( 'PTC_CHATTI_COMMUNICATIONS_URL' ) ? trim( PTC_CHATTI_COMMUNICATIONS_URL ) : '';
 	$key = defined( 'PTC_CHATTI_APP_API_KEY' ) ? trim( PTC_CHATTI_APP_API_KEY ) : '';
 	$key_id = defined( 'PTC_CHATTI_APP_KEY_ID' ) ? trim( PTC_CHATTI_APP_KEY_ID ) : '';
 	if ( ! filter_var( $url, FILTER_VALIDATE_URL ) || ! $key || ! $key_id ) return new WP_Error( 'chatti_not_configured' );
+	$idempotency_key = 'chatti-onboarding:' . $workspace_id . ':' . $step;
+	if ( '' !== $idempotency_suffix ) $idempotency_key .= ':' . sanitize_key( $idempotency_suffix );
 	$body = array( 'appId' => 'chatti', 'workflowId' => 'chatti-onboarding:' . $workspace_id, 'stepId' => $step,
-		'idempotencyKey' => 'chatti-onboarding:' . $workspace_id . ':' . $step, 'messageGroup' => 'postoochat_chatti',
+		'idempotencyKey' => $idempotency_key, 'messageGroup' => 'postoochat_chatti',
 		'messageName' => $message, 'channel' => $channel, 'recipient' => array( 'address' => $address ), 'variables' => $variables );
 	if ( $wait ) $body['waitFor'] = array( 'type' => 'reply', 'timeoutSeconds' => 86400 );
 	$response = wp_remote_post( $url, array( 'timeout' => 15, 'headers' => array( 'Authorization' => 'Bearer ' . $key, 'X-PosToo-Key-Id' => $key_id, 'Content-Type' => 'application/json' ), 'body' => wp_json_encode( $body ) ) );
 	return is_wp_error( $response ) || wp_remote_retrieve_response_code( $response ) < 200 || wp_remote_retrieve_response_code( $response ) >= 300 ? new WP_Error( 'onboarding_send_failed' ) : true;
+}
+
+/** Finds the single Workspace identity that belongs to a channel/mobile owner. */
+function ptc_chatti_find_workspace( $channel, $address ) {
+	global $wpdb;
+	$workspaces = $wpdb->prefix . 'chatti_workspaces';
+	return $wpdb->get_row( $wpdb->prepare( "SELECT * FROM $workspaces WHERE owner_channel = %s AND owner_address = %s ORDER BY created_at ASC LIMIT 1", $channel, $address ), ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+}
+
+/** Records the owner's current availability without changing the Workspace. */
+function ptc_chatti_set_owner_check_status( $workspace_id, $channel, $address, $status ) {
+	global $wpdb;
+	if ( ! in_array( $status, array( 'checked_in', 'checked_out' ), true ) ) return false;
+	$members = $wpdb->prefix . 'chatti_workspace_members';
+	$now = current_time( 'mysql', true );
+	$values = array( 'check_in_status' => $status );
+	if ( 'checked_in' === $status ) $values['checked_in_at'] = $now;
+	else $values['checked_out_at'] = $now;
+	return false !== $wpdb->update( $members, $values, array( 'workspace_id' => $workspace_id, 'channel' => $channel, 'channel_address' => $address ) );
+}
+
+/** Sends a fresh CHATTI_MENU wait; each callback event is idempotent on its own. */
+function ptc_chatti_send_menu( $workspace_id, $channel, $address, $status, $event_id ) {
+	$label = 'checked_in' === $status ? 'Checked-IN' : 'Checked-OUT';
+	return ptc_chatti_send_message( $workspace_id, $channel, $address, 'menu', 'CHATTI_MENU', array( 'check_in_out_status' => $label ), true, 'event-' . $event_id );
+}
+
+/** Close/Exit are Suite navigation actions owned by Supabase, not by Chatti. */
+function ptc_chatti_navigate_suite( $channel, $address, $action ) {
+	$url = defined( 'PTC_CHATTI_SESSION_NAVIGATION_URL' ) ? trim( PTC_CHATTI_SESSION_NAVIGATION_URL ) : '';
+	return ptc_chatti_call_service( $url, array( 'channel' => $channel, 'address' => $address, 'action' => $action ) );
+}
+
+function ptc_chatti_menu_action( $event ) {
+	$value = strtolower( trim( (string) ( $event['reply']['action'] ?? $event['reply']['text'] ?? '' ) ) );
+	$value = str_replace( array( '-', ' ' ), '_', $value );
+	$map = array( '1' => 'check_in', 'check_in' => 'check_in', '2' => 'check_out', 'check_out' => 'check_out', '3' => 'close', 'close' => 'close', '4' => 'exit', 'exit' => 'exit' );
+	return $map[ $value ] ?? '';
 }
 
 /** Calls a private Supabase service using the Chatti application credential. */
@@ -248,6 +300,15 @@ function ptc_chatti_handle_callback( WP_REST_Request $request ) {
 		$channel = sanitize_key( (string) ( $event['channel'] ?? '' ) );
 		$address = sanitize_text_field( (string) ( $event['sender']['address'] ?? '' ) );
 		if ( ! in_array( $channel, array( 'telegram', 'whatsapp' ), true ) || '' === $address ) return new WP_REST_Response( array( 'ok' => false, 'error' => 'invalid_owner' ), 422 );
+		$existing = ptc_chatti_find_workspace( $channel, $address );
+		if ( $existing ) {
+			$workspace_id = $existing['workspace_id'];
+			if ( ! ptc_chatti_set_owner_check_status( $workspace_id, $channel, $address, 'checked_in' ) ) return new WP_REST_Response( array( 'ok' => false, 'error' => 'check_in_update_failed' ), 500 );
+			$sent = ptc_chatti_send_menu( $workspace_id, $channel, $address, 'checked_in', $event_id );
+			if ( is_wp_error( $sent ) ) return new WP_REST_Response( array( 'ok' => false, 'error' => $sent->get_error_code() ), 503 );
+			$wpdb->insert( $events, array( 'event_id' => $event_id, 'received_at' => current_time( 'mysql', true ), 'workspace_id' => $workspace_id ), array( '%s', '%s', '%s' ) );
+			return new WP_REST_Response( array( 'ok' => true, 'workspaceId' => $workspace_id ), 200 );
+		}
 		$workspace_id = wp_generate_uuid4(); $now = current_time( 'mysql', true ); $workspaces = $wpdb->prefix . 'chatti_workspaces'; $members = $wpdb->prefix . 'chatti_workspace_members';
 		$created = $wpdb->insert( $workspaces, array( 'workspace_id' => $workspace_id, 'workspace_label' => 'Pending workspace', 'owner_channel' => $channel, 'owner_address' => $address, 'onboarding_step' => 'set_workspace', 'created_at' => $now, 'updated_at' => $now ) );
 		$owner = $created && $wpdb->insert( $members, array( 'workspace_id' => $workspace_id, 'channel' => $channel, 'channel_address' => $address, 'roles' => wp_json_encode( array( 'owner' ) ), 'created_at' => $now ) );
@@ -302,8 +363,25 @@ function ptc_chatti_handle_callback( WP_REST_Request $request ) {
 		if ( ! $workspace || ! $wpdb->update( $workspaces, array( 'working_hours' => $hours, 'onboarding_step' => 'complete', 'updated_at' => current_time( 'mysql', true ) ), array( 'workspace_id' => $workspace_id ) ) ) return new WP_REST_Response( array( 'ok' => false, 'error' => 'hours_update_failed' ), 422 );
 		$sent = ptc_chatti_send_invitation( $workspace_id, $channel, $workspace['owner_address'], 'admin' );
 		if ( ! is_wp_error( $sent ) ) $sent = ptc_chatti_send_invitation( $workspace_id, $channel, $workspace['owner_address'], 'worker' );
-		if ( ! is_wp_error( $sent ) ) $sent = ptc_chatti_send_message( $workspace_id, $channel, $workspace['owner_address'], 'menu', 'CHATTI_MENU' );
+		if ( ! is_wp_error( $sent ) && ! ptc_chatti_set_owner_check_status( $workspace_id, $channel, $workspace['owner_address'], 'checked_in' ) ) $sent = new WP_Error( 'check_in_update_failed' );
+		if ( ! is_wp_error( $sent ) ) $sent = ptc_chatti_send_menu( $workspace_id, $channel, $workspace['owner_address'], 'checked_in', $event_id );
 		if ( is_wp_error( $sent ) ) return new WP_REST_Response( array( 'ok' => false, 'error' => $sent->get_error_code() ), 503 );
+	} elseif ( ( $event['eventType'] ?? '' ) === 'communication.replied' && ( $event['stepId'] ?? '' ) === 'menu' ) {
+		$workspace_id = ptc_chatti_workspace_for_event( $event );
+		$channel = sanitize_key( (string) ( $event['channel'] ?? '' ) );
+		$address = sanitize_text_field( (string) ( $event['reply']['senderAddress'] ?? $event['sender']['address'] ?? '' ) );
+		$action = ptc_chatti_menu_action( $event );
+		$workspace = $workspace_id ? ptc_chatti_find_workspace( $channel, $address ) : null;
+		if ( ! $workspace_id || ! $workspace || $workspace['workspace_id'] !== $workspace_id || ! $action ) return new WP_REST_Response( array( 'ok' => false, 'error' => 'invalid_menu_reply' ), 422 );
+		if ( 'check_in' === $action || 'check_out' === $action ) {
+			$status = 'check_in' === $action ? 'checked_in' : 'checked_out';
+			if ( ! ptc_chatti_set_owner_check_status( $workspace_id, $channel, $address, $status ) ) return new WP_REST_Response( array( 'ok' => false, 'error' => 'check_status_update_failed' ), 500 );
+			$sent = ptc_chatti_send_menu( $workspace_id, $channel, $address, $status, $event_id );
+			if ( is_wp_error( $sent ) ) return new WP_REST_Response( array( 'ok' => false, 'error' => $sent->get_error_code() ), 503 );
+		} else {
+			$navigated = ptc_chatti_navigate_suite( $channel, $address, $action );
+			if ( is_wp_error( $navigated ) ) return new WP_REST_Response( array( 'ok' => false, 'error' => $navigated->get_error_code() ), 503 );
+		}
 	} else {
 		$wpdb->insert( $events, array( 'event_id' => $event_id, 'received_at' => current_time( 'mysql', true ) ), array( '%s', '%s' ) );
 	}
