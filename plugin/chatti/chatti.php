@@ -114,7 +114,9 @@ function ptc_chatti_parse_hours( $value ) {
 	$value = trim( wp_strip_all_tags( (string) $value ) );
 	// WhatsApp sends the displayed menu number rather than the action key.
 	// CHATTI_SET_HOURS currently exposes one live option: 08:00 - 17:00.
-	if ( '1' === $value ) return '08:00-17:00';
+	// Telegram's current catalog action key is `8_5`; WhatsApp uses the
+	// displayed number `1` for this same 08:00 - 17:00 option.
+	if ( in_array( $value, array( '1', '8_5' ), true ) ) return '08:00-17:00';
 	if ( preg_match( '/^(\d{2})(\d{2})_(\d{2})(\d{2})$/', $value, $match ) ) $match = array( '', $match[1], $match[2], $match[3], $match[4] );
 	elseif ( ! preg_match( '/^(\d{1,2}):(\d{2})\s*(?:-|–|to)\s*(\d{1,2}):(\d{2})$/i', $value, $match ) ) return '';
 	$start = (int) $match[1] * 60 + (int) $match[2];
