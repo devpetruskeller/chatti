@@ -112,6 +112,9 @@ function ptc_chatti_resolve_timezone( $workspace_id, $channel, $latitude, $longi
 /** Accepts catalog action keys plus the documented 08:00 - 17:00 reply format. */
 function ptc_chatti_parse_hours( $value ) {
 	$value = trim( wp_strip_all_tags( (string) $value ) );
+	// WhatsApp sends the displayed menu number rather than the action key.
+	// CHATTI_SET_HOURS currently exposes one live option: 08:00 - 17:00.
+	if ( '1' === $value ) return '08:00-17:00';
 	if ( preg_match( '/^(\d{2})(\d{2})_(\d{2})(\d{2})$/', $value, $match ) ) $match = array( '', $match[1], $match[2], $match[3], $match[4] );
 	elseif ( ! preg_match( '/^(\d{1,2}):(\d{2})\s*(?:-|–|to)\s*(\d{1,2}):(\d{2})$/i', $value, $match ) ) return '';
 	$start = (int) $match[1] * 60 + (int) $match[2];
@@ -236,6 +239,7 @@ function ptc_chatti_handle_callback( WP_REST_Request $request ) {
 		if ( ! $workspace || ! $wpdb->update( $workspaces, array( 'working_hours' => $hours, 'onboarding_step' => 'complete', 'updated_at' => current_time( 'mysql', true ) ), array( 'workspace_id' => $workspace_id ) ) ) return new WP_REST_Response( array( 'ok' => false, 'error' => 'hours_update_failed' ), 422 );
 		$sent = ptc_chatti_send_invitation( $workspace_id, $channel, $workspace['owner_address'], 'admin' );
 		if ( ! is_wp_error( $sent ) ) $sent = ptc_chatti_send_invitation( $workspace_id, $channel, $workspace['owner_address'], 'worker' );
+		if ( ! is_wp_error( $sent ) ) $sent = ptc_chatti_send_message( $workspace_id, $channel, $workspace['owner_address'], 'menu', 'CHATTI_MENU' );
 		if ( is_wp_error( $sent ) ) return new WP_REST_Response( array( 'ok' => false, 'error' => $sent->get_error_code() ), 503 );
 	} else {
 		$wpdb->insert( $events, array( 'event_id' => $event_id, 'received_at' => current_time( 'mysql', true ) ), array( '%s', '%s' ) );

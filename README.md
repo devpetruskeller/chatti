@@ -71,7 +71,8 @@ permitted to hold a user-facing conversation.
 3. The Owner shares a location pin; Supabase records it as `workspace_base`
    and returns its IANA timezone.
 4. The Owner selects an hours action or types `08:00 - 17:00`.
-5. Chatti sends the Admin and Worker invitation links.
+5. Chatti sends the Admin invitation and link, then the Worker invitation and
+   link, and finally opens `CHATTI_MENU`.
 6. A Worker publishes a workspace entry link, QR code, or HTML code. It may be
    placed on the company website, Facebook, or another application.
 
