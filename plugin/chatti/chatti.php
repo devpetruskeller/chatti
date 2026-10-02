@@ -199,10 +199,20 @@ function ptc_chatti_handle_callback( WP_REST_Request $request ) {
 		if ( ! $label || ! in_array( $channel, array( 'telegram', 'whatsapp' ), true ) || '' === $address ) return new WP_REST_Response( array( 'ok' => false, 'error' => 'invalid_workspace_reply' ), 422 );
 		$workspaces = $wpdb->prefix . 'chatti_workspaces';
 		$workspace_id = ptc_chatti_workspace_for_event( $event );
-		if ( ! $workspace_id || ! $wpdb->update( $workspaces, array( 'workspace_label' => $label, 'onboarding_step' => 'set_timezone', 'updated_at' => current_time( 'mysql', true ) ), array( 'workspace_id' => $workspace_id, 'owner_channel' => $channel, 'owner_address' => $address ) ) ) return new WP_REST_Response( array( 'ok' => false, 'error' => 'workspace_update_failed' ), 422 );
+		if ( ! $workspace_id || ! $wpdb->update( $workspaces, array( 'workspace_label' => $label, 'onboarding_step' => 'awaiting_link_copy', 'updated_at' => current_time( 'mysql', true ) ), array( 'workspace_id' => $workspace_id, 'owner_channel' => $channel, 'owner_address' => $address ) ) ) return new WP_REST_Response( array( 'ok' => false, 'error' => 'workspace_update_failed' ), 422 );
 		$sent = ptc_chatti_send_invitation( $workspace_id, $channel, $address, 'user' );
-		if ( ! is_wp_error( $sent ) ) $sent = ptc_chatti_send_message( $workspace_id, $channel, $address, 'invite-user-link-copied', 'CHATTI_INVITE_USER_LINK_COPIED', array(), false );
-		if ( ! is_wp_error( $sent ) ) $sent = ptc_chatti_send_message( $workspace_id, $channel, $address, 'set-timezone', 'CHATTI_SET_TIMEZONE' );
+		// The owner must acknowledge that the public User link was copied before
+		// the next onboarding wait opens. This preserves a single active reply
+		// context in both WhatsApp and Telegram.
+		if ( ! is_wp_error( $sent ) ) $sent = ptc_chatti_send_message( $workspace_id, $channel, $address, 'invite-user-link-copied', 'CHATTI_INVITE_USER_LINK_COPIED' );
+		if ( is_wp_error( $sent ) ) return new WP_REST_Response( array( 'ok' => false, 'error' => $sent->get_error_code() ), 503 );
+	} elseif ( ( $event['eventType'] ?? '' ) === 'communication.replied' && ( $event['stepId'] ?? '' ) === 'invite-user-link-copied' ) {
+		$workspace_id = ptc_chatti_workspace_for_event( $event );
+		$channel = sanitize_key( (string) ( $event['channel'] ?? '' ) );
+		$address = sanitize_text_field( (string) ( $event['reply']['senderAddress'] ?? $event['sender']['address'] ?? '' ) );
+		$workspaces = $wpdb->prefix . 'chatti_workspaces';
+		if ( ! $workspace_id || ! in_array( $channel, array( 'telegram', 'whatsapp' ), true ) || '' === $address || ! $wpdb->update( $workspaces, array( 'onboarding_step' => 'set_timezone', 'updated_at' => current_time( 'mysql', true ) ), array( 'workspace_id' => $workspace_id, 'owner_channel' => $channel, 'owner_address' => $address ) ) ) return new WP_REST_Response( array( 'ok' => false, 'error' => 'link_copy_confirmation_failed' ), 422 );
+		$sent = ptc_chatti_send_message( $workspace_id, $channel, $address, 'set-timezone', 'CHATTI_SET_TIMEZONE' );
 		if ( is_wp_error( $sent ) ) return new WP_REST_Response( array( 'ok' => false, 'error' => $sent->get_error_code() ), 503 );
 	} elseif ( ( $event['eventType'] ?? '' ) === 'communication.replied' && ( $event['stepId'] ?? '' ) === 'set-timezone' ) {
 		$workspace_id = ptc_chatti_workspace_for_event( $event );

@@ -66,7 +66,8 @@ permitted to hold a user-facing conversation.
 ## 3. Workspace onboarding
 
 1. The founding Owner names the already-created workspace.
-2. Chatti sends the User invitation and its channel-specific link.
+2. Chatti sends the User invitation and its channel-specific link. The Owner
+   confirms **Link Copied** before the next onboarding step opens.
 3. The Owner shares a location pin; Supabase records it as `workspace_base`
    and returns its IANA timezone.
 4. The Owner selects an hours action or types `08:00 - 17:00`.
