@@ -1,6 +1,7 @@
 # Local development and secret material.
 .env
 .env.*
+.gitenv
 !.env.example
 vendor/
 node_modules/
